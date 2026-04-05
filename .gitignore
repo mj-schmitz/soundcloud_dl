@@ -46,3 +46,5 @@ downloads/
 
 # Logs
 *.log
+.vercel
+.env*.local
