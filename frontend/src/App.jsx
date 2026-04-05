@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import DownloadCard from './components/DownloadCard'
 import LikedSongs from './components/LikedSongs'
-import { Tabs, TabsList, TabsTrigger, TabsContent } from './components/ui/tabs'
+import { Tabs, TabsContent } from './components/ui/tabs'
 
 function App() {
   const [activeTab, setActiveTab] = useState('single')
@@ -11,20 +11,20 @@ function App() {
       <div className="max-w-6xl mx-auto">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           <div className="flex justify-center mb-8">
-            <TabsList className="grid w-full max-w-md grid-cols-2">
-              <TabsTrigger 
+            {/* <TabsList className="grid w-full max-w-md grid-cols-1"> */}
+              {/* <TabsTrigger 
                 value="single"
                 data-state={activeTab === 'single' ? 'active' : 'inactive'}
               >
-                Single Download
-              </TabsTrigger>
-              <TabsTrigger 
+                Download 
+              </TabsTrigger> */}
+              {/* <TabsTrigger 
                 value="liked"
                 data-state={activeTab === 'liked' ? 'active' : 'inactive'}
               >
                 Liked Songs
-              </TabsTrigger>
-            </TabsList>
+              </TabsTrigger> */}
+            {/* </TabsList> */}
           </div>
 
      

@@ -22,7 +22,10 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
-CORS(app)
+
+# Configure CORS - allow Railway domain and localhost for development
+cors_origins = os.environ.get('CORS_ORIGINS', 'http://localhost:5173,http://localhost:5179').split(',')
+CORS(app, origins=cors_origins + ['*'])  # Allow all origins for now, restrict in production
 
 logger.info("Flask app initialized with CORS enabled")
 
@@ -463,5 +466,6 @@ def bulk_download_tracks(urls: list, download_id: str):
         }
 
 if __name__ == '__main__':
-    logger.info("Starting Flask server on port 5001...")
-    app.run(debug=True, port=5001)
+    port = int(os.environ.get('PORT', 5001))
+    logger.info(f"Starting Flask server on port {port}...")
+    app.run(debug=True, port=port, host='0.0.0.0')

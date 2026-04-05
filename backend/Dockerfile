@@ -17,8 +17,9 @@ COPY . .
 # Create downloads directory
 RUN mkdir -p /tmp/soundcloud_downloads
 
-# Expose port
-EXPOSE 5001
+# Expose port (Railway will set this dynamically)
+EXPOSE $PORT
 
 # Run the application with gunicorn for production
-CMD ["gunicorn", "--bind", "0.0.0.0:5001", "--workers", "4", "--timeout", "300", "app:app"]
+# Use shell form to allow environment variable expansion
+CMD gunicorn --bind 0.0.0.0:$PORT --workers 4 --timeout 300 --access-logfile - --error-logfile - app:app
