@@ -12,6 +12,7 @@ import logging
 import requests
 import zipfile
 import io
+import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 logging.basicConfig(
@@ -31,8 +32,30 @@ logger.info("Flask app initialized with CORS enabled")
 
 DOWNLOAD_DIR = Path(tempfile.gettempdir()) / "soundcloud_downloads"
 DOWNLOAD_DIR.mkdir(exist_ok=True)
+STATUS_DIR = DOWNLOAD_DIR / "status"
+STATUS_DIR.mkdir(exist_ok=True)
 
 download_status = {}
+
+def save_status(download_id, status):
+    """Save status to file for persistence across instances"""
+    status_file = STATUS_DIR / f"{download_id}.json"
+    with open(status_file, 'w') as f:
+        json.dump(status, f)
+    download_status[download_id] = status
+
+def load_status(download_id):
+    """Load status from file if not in memory"""
+    if download_id in download_status:
+        return download_status[download_id]
+    
+    status_file = STATUS_DIR / f"{download_id}.json"
+    if status_file.exists():
+        with open(status_file, 'r') as f:
+            status = json.load(f)
+            download_status[download_id] = status
+            return status
+    return None
 
 def cleanup_old_files():
     """Clean up files older than 1 hour"""
@@ -53,11 +76,11 @@ def download_track(url: str, download_id: str):
     """Background task to download track"""
     logger.info(f"[{download_id}] Starting download for URL: {url}")
     try:
-        download_status[download_id] = {
+        save_status(download_id, {
             'status': 'downloading',
             'progress': 0,
-            'message': 'Starting download...'
-        }
+            'message': 'Initiating download...'
+        })
         logger.debug(f"[{download_id}] Download directory: {DOWNLOAD_DIR}")
         
         output_template = str(DOWNLOAD_DIR / f"{download_id}_%(title)s.%(ext)s")
@@ -67,12 +90,18 @@ def download_track(url: str, download_id: str):
             if d['status'] == 'downloading':
                 try:
                     percent = d.get('_percent_str', '0%').strip().replace('%', '')
-                    download_status[download_id]['progress'] = float(percent)
-                    download_status[download_id]['message'] = f"Downloading: {percent}%"
+                    status = load_status(download_id)
+                    if status:
+                        status['progress'] = float(percent)
+                        status['message'] = f"Downloading: {percent}%"
+                        save_status(download_id, status)
                 except:
                     pass
             elif d['status'] == 'finished':
-                download_status[download_id]['message'] = 'Converting to MP3...'
+                status = load_status(download_id)
+                if status:
+                    status['message'] = 'Converting to MP3...'
+                    save_status(download_id, status)
         
         ydl_opts = {
             'format': 'bestaudio/best',
@@ -106,7 +135,7 @@ def download_track(url: str, download_id: str):
             parts = original_filename.split('_', 1)
             clean_filename = parts[1] if len(parts) > 1 else original_filename
             
-            download_status[download_id] = {
+            save_status(download_id, {
                 'status': 'completed',
                 'progress': 100,
                 'message': 'Download complete!',
@@ -115,16 +144,16 @@ def download_track(url: str, download_id: str):
                 'title': info.get('title', 'Unknown'),
                 'artist': info.get('uploader', 'Unknown'),
                 'duration': info.get('duration', 0)
-            }
+            })
             
     except Exception as e:
         logger.error(f"[{download_id}] Download failed: {str(e)}")
         logger.exception("Full traceback:")
-        download_status[download_id] = {
+        save_status(download_id, {
             'status': 'error',
             'progress': 0,
             'message': f'Error: {str(e)}'
-        }
+        })
 
 @app.route('/api/health', methods=['GET'])
 def health_check():
@@ -166,7 +195,7 @@ def initiate_download():
 def get_status(download_id):
     """Get download status"""
     logger.debug(f"Status check for download ID: {download_id}")
-    status = download_status.get(download_id)
+    status = load_status(download_id)
     
     if not status:
         logger.warning(f"Download ID not found: {download_id}")
@@ -320,13 +349,13 @@ def bulk_download():
     download_id = str(uuid.uuid4())
     logger.info(f"Generated bulk download ID: {download_id}")
     
-    download_status[download_id] = {
+    save_status(download_id, {
         'status': 'downloading',
         'progress': 0,
         'message': 'Starting bulk download...',
         'total': len(urls),
         'completed': 0
-    }
+    })
     
     thread = threading.Thread(target=bulk_download_tracks, args=(urls, download_id))
     thread.start()
@@ -399,11 +428,14 @@ def bulk_download_tracks(urls: list, download_id: str):
                     completed_count += 1
                     
                     # Update progress
-                    download_status[download_id].update({
-                        'progress': int((completed_count / len(urls)) * 95),  # Reserve 5% for zipping
-                        'message': f'Downloaded {completed_count} of {len(urls)} tracks...',
-                        'completed': completed_count
-                    })
+                    status = load_status(download_id)
+                    if status:
+                        status.update({
+                            'progress': int((completed_count / len(urls)) * 95),
+                            'message': f'Downloaded {completed_count} of {len(urls)} tracks...',
+                            'completed': completed_count
+                        })
+                        save_status(download_id, status)
                     
                 except Exception as e:
                     logger.error(f"[{download_id}] Error processing download result: {str(e)}")
@@ -415,10 +447,13 @@ def bulk_download_tracks(urls: list, download_id: str):
             raise Exception("No tracks were successfully downloaded")
         
         logger.info(f"[{download_id}] Creating zip file with {len(downloaded_files)} tracks")
-        download_status[download_id].update({
-            'message': 'Creating zip file...',
-            'progress': 95
-        })
+        status = load_status(download_id)
+        if status:
+            status.update({
+                'message': 'Creating zip file...',
+                'progress': 95
+            })
+            save_status(download_id, status)
         
         with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
             for file_path in downloaded_files:
@@ -444,7 +479,7 @@ def bulk_download_tracks(urls: list, download_id: str):
                     except:
                         pass
         
-        download_status[download_id] = {
+        save_status(download_id, {
             'status': 'completed',
             'progress': 100,
             'message': 'Bulk download complete!',
@@ -452,18 +487,18 @@ def bulk_download_tracks(urls: list, download_id: str):
             'completed': len(downloaded_files),
             'filename': os.path.basename(zip_path),
             'filepath': str(zip_path)
-        }
+        })
         
         logger.info(f"[{download_id}] Bulk download completed successfully")
         
     except Exception as e:
         logger.error(f"[{download_id}] Bulk download failed: {str(e)}")
         logger.exception("Full traceback:")
-        download_status[download_id] = {
+        save_status(download_id, {
             'status': 'error',
             'progress': 0,
             'message': f'Error: {str(e)}'
-        }
+        })
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5001))
